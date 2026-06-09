@@ -1,0 +1,21 @@
+# Go
+bin/
+*.exe
+vendor/
+
+# Java
+/target
+*.class
+*.jar
+*.war
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
