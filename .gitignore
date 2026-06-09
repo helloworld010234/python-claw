@@ -4,10 +4,29 @@ bin/
 vendor/
 
 # Java
-/target
+target/
 *.class
 *.jar
 *.war
+*.nar
+*.ear
+
+# Logs
+*.log
+logs/
+
+# H2 Database
+*.db
+*.mv.db
+*.trace.db
+
+# JVM crash logs
+hs_err_pid*
+*.hprof
+
+# Temp files
+*.tmp
+*.temp
 
 # IDE
 .idea/
