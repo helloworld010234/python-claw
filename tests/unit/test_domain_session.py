@@ -23,6 +23,12 @@ class TestSessionCreation:
 
         assert session.status is SessionStatus.ACTIVE
 
+    def test_status_cannot_be_set_directly(self) -> None:
+        session = Session(id="s-1")
+
+        with pytest.raises(AttributeError):
+            session.status = SessionStatus.ARCHIVED  # type: ignore[misc]
+
 
 class TestSessionAppend:
     def test_appends_message_and_accumulates_usage(self) -> None:
@@ -40,6 +46,13 @@ class TestSessionAppend:
         with pytest.raises(PythonClawDomainError, match="Message"):
             session.append("not a message")  # type: ignore[arg-type]
 
+    def test_appending_to_archived_session_fails(self) -> None:
+        session = Session(id="s-1")
+        session.archive()
+
+        with pytest.raises(PythonClawDomainError, match="archived"):
+            session.append(Message(role=Role.USER, content="hello"))
+
     def test_messages_returns_immutable_copy(self) -> None:
         session = Session(id="s-1")
         session.append(Message(role=Role.USER, content="hello"))
@@ -47,6 +60,15 @@ class TestSessionAppend:
         view = session.messages
         with pytest.raises(TypeError):
             view[0] = Message(role=Role.USER, content=" mutated")  # type: ignore[index]
+
+
+class TestSessionArchive:
+    def test_archive_moves_session_to_archived(self) -> None:
+        session = Session(id="s-1")
+
+        session.archive()
+
+        assert session.status is SessionStatus.ARCHIVED
 
 
 class TestSessionWorkingMemory:
@@ -75,7 +97,7 @@ class TestSessionWorkingMemory:
 
         assert [m.content for m in window] == ["msg-2", "msg-3", "msg-4"]
 
-    def test_prunes_isolated_tool_observation(self) -> None:
+    def test_prunes_leading_user_tool_observations_after_truncation(self) -> None:
         session = Session(id="s-1")
         session.append(Message(role=Role.USER, content="start"))
         session.append(Message(role=Role.USER, content="obs-1", tool_call_id="call-1"))
@@ -89,10 +111,8 @@ class TestSessionWorkingMemory:
 
         window = session.get_working_memory(3)
 
-        assert len(window) == 2
-        assert window[0].content == "obs-2"
-        assert window[0].tool_call_id == "call-2"
-        assert window[1].role is Role.ASSISTANT
+        assert len(window) == 1
+        assert window[0].role is Role.ASSISTANT
 
     def test_keeps_non_isolated_first_observation(self) -> None:
         session = Session(id="s-1")
@@ -125,3 +145,25 @@ class TestSessionWorkingMemory:
 
         with pytest.raises(TypeError):
             window[0] = Message(role=Role.USER, content="mutated")  # type: ignore[index]
+
+
+class TestSessionPersistenceFactory:
+    def test_reconstructs_aggregate_with_status_and_messages(self) -> None:
+        message = Message(role=Role.USER, content="hello")
+        session = Session.from_persistence(
+            session_id="s-1",
+            status=SessionStatus.ARCHIVED,
+            messages=[message],
+            total_usage=Usage(prompt_tokens=2),
+        )
+
+        assert session.status is SessionStatus.ARCHIVED
+        assert session.messages == (message,)
+        assert session.total_usage.prompt_tokens == 2
+
+    def test_factory_rejects_non_enum_status(self) -> None:
+        with pytest.raises(PythonClawDomainError, match="SessionStatus"):
+            Session.from_persistence(
+                session_id="s-1",
+                status="archived",  # type: ignore[arg-type]
+            )

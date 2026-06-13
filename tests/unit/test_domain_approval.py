@@ -24,6 +24,12 @@ class TestApprovalRequestCreation:
         assert request.status is ApprovalStatus.PENDING
         assert not request.is_terminal
 
+    def test_status_cannot_be_set_directly(self) -> None:
+        request = ApprovalRequest(id="a-1", run_id="r-1", tool_name="bash")
+
+        with pytest.raises(AttributeError):
+            request.status = ApprovalStatus.APPROVED  # type: ignore[misc]
+
 
 class TestApprovalLifecycle:
     def test_pending_to_approved(self) -> None:
@@ -54,3 +60,25 @@ class TestApprovalLifecycle:
 
         with pytest.raises(PythonClawDomainError, match="terminal status"):
             request.approve()
+
+
+class TestApprovalPersistenceFactory:
+    def test_reconstructs_aggregate_with_status(self) -> None:
+        request = ApprovalRequest.from_persistence(
+            approval_id="a-1",
+            run_id="r-1",
+            tool_name="bash",
+            status=ApprovalStatus.APPROVED,
+        )
+
+        assert request.status is ApprovalStatus.APPROVED
+        assert request.is_terminal
+
+    def test_factory_rejects_non_enum_status(self) -> None:
+        with pytest.raises(PythonClawDomainError, match="ApprovalStatus"):
+            ApprovalRequest.from_persistence(
+                approval_id="a-1",
+                run_id="r-1",
+                tool_name="bash",
+                status="approved",  # type: ignore[arg-type]
+            )

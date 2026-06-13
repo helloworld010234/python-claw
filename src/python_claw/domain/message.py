@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any
 
 from python_claw.domain.common import PythonClawDomainError
@@ -16,6 +17,22 @@ class Role(StrEnum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
+
+
+def _freeze_json_like(value: Any) -> Any:
+    """Recursively convert a JSON-like structure into an immutable equivalent.
+
+    Supports dict, list, tuple, set, frozenset, str, int, float, bool and None.
+    Dicts are wrapped in ``MappingProxyType`` so callers cannot mutate them
+    through the returned mapping view.
+    """
+    if isinstance(value, dict):
+        return MappingProxyType({k: _freeze_json_like(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_json_like(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_json_like(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +81,11 @@ class ToolCall:
             raise PythonClawDomainError("ToolCall.id must not be blank")
         if not self.name or not self.name.strip():
             raise PythonClawDomainError("ToolCall.name must not be blank")
+        if not isinstance(self.arguments, Mapping):
+            raise PythonClawDomainError(
+                f"ToolCall.arguments must be a mapping, got {type(self.arguments)}"
+            )
+        object.__setattr__(self, "arguments", _freeze_json_like(self.arguments))
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +112,11 @@ class ToolDefinition:
     def __post_init__(self) -> None:
         if not self.name or not self.name.strip():
             raise PythonClawDomainError("ToolDefinition.name must not be blank")
+        if not isinstance(self.input_schema, Mapping):
+            raise PythonClawDomainError(
+                f"ToolDefinition.input_schema must be a mapping, got {type(self.input_schema)}"
+            )
+        object.__setattr__(self, "input_schema", _freeze_json_like(self.input_schema))
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,12 +133,22 @@ class Message:
 
     role: Role
     content: str = ""
-    tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)
+    tool_calls: Sequence[ToolCall] = field(default_factory=tuple)
     tool_call_id: str | None = None
     usage: Usage | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.role, Role):
             raise PythonClawDomainError(f"Message.role must be a Role enum, got {type(self.role)}")
-        if self.role is Role.ASSISTANT and not self.content and not self.tool_calls:
+
+        tool_calls = tuple(self.tool_calls)
+        for index, tool_call in enumerate(tool_calls):
+            if not isinstance(tool_call, ToolCall):
+                raise PythonClawDomainError(
+                    f"Message.tool_calls[{index}] must be a ToolCall, got {type(tool_call)}"
+                )
+
+        if self.role is Role.ASSISTANT and not self.content and not tool_calls:
             raise PythonClawDomainError("Assistant message must have either content or tool_calls")
+
+        object.__setattr__(self, "tool_calls", tool_calls)

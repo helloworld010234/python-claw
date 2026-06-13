@@ -24,6 +24,12 @@ class TestAgentRunCreation:
         assert run.status is AgentRunStatus.PENDING
         assert not run.is_terminal
 
+    def test_status_cannot_be_set_directly(self) -> None:
+        run = AgentRun(id="r-1", session_id="s-1", prompt="hello")
+
+        with pytest.raises(AttributeError):
+            run.status = AgentRunStatus.RUNNING  # type: ignore[misc]
+
 
 class TestAgentRunStateTransitions:
     def test_pending_to_running(self) -> None:
@@ -93,3 +99,28 @@ class TestAgentRunStateTransitions:
 
         with pytest.raises(PythonClawDomainError, match="Message"):
             run.append_message("not a message")  # type: ignore[arg-type]
+
+
+class TestAgentRunPersistenceFactory:
+    def test_reconstructs_aggregate_with_status_and_messages(self) -> None:
+        message = Message(role=Role.ASSISTANT, content="hello")
+        run = AgentRun.from_persistence(
+            run_id="r-1",
+            session_id="s-1",
+            prompt="hello",
+            status=AgentRunStatus.COMPLETED,
+            messages=[message],
+        )
+
+        assert run.status is AgentRunStatus.COMPLETED
+        assert run.is_terminal
+        assert run.messages == (message,)
+
+    def test_factory_rejects_non_enum_status(self) -> None:
+        with pytest.raises(PythonClawDomainError, match="AgentRunStatus"):
+            AgentRun.from_persistence(
+                run_id="r-1",
+                session_id="s-1",
+                prompt="hello",
+                status="completed",  # type: ignore[arg-type]
+            )

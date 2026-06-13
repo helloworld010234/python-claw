@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Self
 
 from python_claw.domain.common import PythonClawDomainError
 from python_claw.domain.message import Message
@@ -50,7 +51,7 @@ class AgentRun:
     id: str
     session_id: str
     prompt: str
-    status: AgentRunStatus = AgentRunStatus.PENDING
+    _status: AgentRunStatus = field(default=AgentRunStatus.PENDING, init=False, repr=False)
     _messages: list[Message] = field(default_factory=list, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -62,13 +63,41 @@ class AgentRun:
             raise PythonClawDomainError("AgentRun.prompt must not be None")
 
     @property
+    def status(self) -> AgentRunStatus:
+        """Read-only view of the current lifecycle status."""
+        return self._status
+
+    @property
     def messages(self) -> Sequence[Message]:
         """Read-only view of messages produced during the run."""
         return tuple(self._messages)
 
     @property
     def is_terminal(self) -> bool:
-        return self.status in _TERMINAL_STATUSES
+        return self._status in _TERMINAL_STATUSES
+
+    @classmethod
+    def from_persistence(
+        cls,
+        run_id: str,
+        session_id: str,
+        prompt: str,
+        status: AgentRunStatus,
+        messages: Sequence[Message] | None = None,
+    ) -> Self:
+        """Reconstruct an aggregate from persisted state without bypassing invariants.
+
+        The provided ``status`` must be a valid ``AgentRunStatus`` value.
+        """
+        if not isinstance(status, AgentRunStatus):
+            raise PythonClawDomainError(
+                f"AgentRun status must be an AgentRunStatus, got {type(status)}"
+            )
+        instance = cls(id=run_id, session_id=session_id, prompt=prompt)
+        object.__setattr__(instance, "_status", status)
+        if messages is not None:
+            object.__setattr__(instance, "_messages", list(messages))
+        return instance
 
     def start(self) -> None:
         """Move the run from PENDING to RUNNING."""
@@ -99,15 +128,16 @@ class AgentRun:
         self._messages.append(message)
 
     def _transition_to(self, next_status: AgentRunStatus) -> None:
-        if self.status in _TERMINAL_STATUSES:
+        if self._status in _TERMINAL_STATUSES:
             raise PythonClawDomainError(
-                f"Cannot transition from terminal status {self.status.value} to {next_status.value}"
+                "Cannot transition from terminal status "
+                f"{self._status.value} to {next_status.value}"
             )
 
-        allowed = _VALID_TRANSITIONS.get(self.status)
+        allowed = _VALID_TRANSITIONS.get(self._status)
         if allowed is None or next_status not in allowed:
             raise PythonClawDomainError(
-                f"Invalid transition from {self.status.value} to {next_status.value}"
+                f"Invalid transition from {self._status.value} to {next_status.value}"
             )
 
-        self.status = next_status
+        self._status = next_status
