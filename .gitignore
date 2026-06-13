@@ -59,3 +59,5 @@ hypothesis/
 .pytype/
 .dmypy.json
 dmypy.json
+# Agent guide with real credentials; keep local-only
+AGENTS.md
