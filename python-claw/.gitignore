@@ -1,0 +1,63 @@
+# Python environments and caches
+.venv/
+.uv-cache/
+.tmp/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+*.py,cover
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.manifest
+*.spec
+pip-wheel-metadata/
+share/python-wheels/
+wheels/
+
+# Package metadata
+*.egg
+*.egg-info/
+MANIFEST
+
+# Local databases and generated runtime state
+*.db
+*.sqlite
+*.sqlite3
+.claw/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# macOS system files
+.DS_Store
+
+# Misc Python tooling
+.tox/
+.nox/
+hypothesis/
+.pytype/
+.dmypy.json
+dmypy.json
+# Agent guide with real credentials; keep local-only
+AGENTS.md
