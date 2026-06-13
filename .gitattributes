@@ -1,0 +1,32 @@
+# Automatically handle line endings for text files
+* text=auto
+
+# Python sources
+*.py text eol=lf
+*.pyi text eol=lf
+
+# Configuration and documentation
+*.md text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.sqlite binary
+*.sqlite3 binary
+*.db binary
