@@ -50,6 +50,24 @@ def test_domain_and_application_do_not_depend_on_adapter_libraries() -> None:
     assert violations == []
 
 
+def test_ports_do_not_depend_on_adapter_libraries() -> None:
+    checked_files = sorted((SOURCE_ROOT / "ports").rglob("*.py"))
+
+    assert checked_files, "Expected ports package to exist."
+
+    violations: list[str] = []
+    for source_file in checked_files:
+        tree = ast.parse(source_file.read_text(encoding="utf-8"), filename=str(source_file))
+        for node in ast.walk(tree):
+            imported_root = _imported_root(node)
+            if imported_root in FORBIDDEN_CORE_IMPORTS:
+                violations.append(
+                    f"{source_file.relative_to(PROJECT_ROOT)} imports {imported_root}"
+                )
+
+    assert violations == []
+
+
 def _imported_root(node: ast.AST) -> str | None:
     if isinstance(node, ast.Import):
         if not node.names:
