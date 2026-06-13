@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Self
 
 from python_claw.domain.common import PythonClawDomainError
 
@@ -34,7 +35,7 @@ class ApprovalRequest:
     run_id: str
     tool_name: str
     tool_arguments: str = ""
-    status: ApprovalStatus = ApprovalStatus.PENDING
+    _status: ApprovalStatus = field(default=ApprovalStatus.PENDING, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():
@@ -45,8 +46,39 @@ class ApprovalRequest:
             raise PythonClawDomainError("ApprovalRequest.tool_name must not be blank")
 
     @property
+    def status(self) -> ApprovalStatus:
+        """Read-only view of the current approval status."""
+        return self._status
+
+    @property
     def is_terminal(self) -> bool:
-        return self.status in _TERMINAL_STATUSES
+        return self._status in _TERMINAL_STATUSES
+
+    @classmethod
+    def from_persistence(
+        cls,
+        approval_id: str,
+        run_id: str,
+        tool_name: str,
+        status: ApprovalStatus,
+        tool_arguments: str = "",
+    ) -> Self:
+        """Reconstruct an aggregate from persisted state without bypassing invariants.
+
+        The provided ``status`` must be a valid ``ApprovalStatus`` value.
+        """
+        if not isinstance(status, ApprovalStatus):
+            raise PythonClawDomainError(
+                f"ApprovalRequest status must be an ApprovalStatus, got {type(status)}"
+            )
+        instance = cls(
+            id=approval_id,
+            run_id=run_id,
+            tool_name=tool_name,
+            tool_arguments=tool_arguments,
+        )
+        object.__setattr__(instance, "_status", status)
+        return instance
 
     def approve(self) -> None:
         """Approve the request."""
@@ -61,13 +93,14 @@ class ApprovalRequest:
         self._transition_to(ApprovalStatus.EXPIRED)
 
     def _transition_to(self, next_status: ApprovalStatus) -> None:
-        if self.status in _TERMINAL_STATUSES:
+        if self._status in _TERMINAL_STATUSES:
             raise PythonClawDomainError(
-                f"Cannot transition from terminal status {self.status.value} to {next_status.value}"
+                "Cannot transition from terminal status "
+                f"{self._status.value} to {next_status.value}"
             )
-        if self.status is ApprovalStatus.PENDING and next_status in _TERMINAL_STATUSES:
-            self.status = next_status
+        if self._status is ApprovalStatus.PENDING and next_status in _TERMINAL_STATUSES:
+            self._status = next_status
             return
         raise PythonClawDomainError(
-            f"Invalid transition from {self.status.value} to {next_status.value}"
+            f"Invalid transition from {self._status.value} to {next_status.value}"
         )
