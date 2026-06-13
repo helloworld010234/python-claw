@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
+import subprocess
+import sys
 from typing import Any
 
-from python_claw.adapters.tools.policy import DangerousCommandError, DangerousCommandPolicy
+from python_claw.adapters.tools.policy import (
+    CommandSafetyDecision,
+    DangerousCommandPolicy,
+    SafetyDecision,
+)
 from python_claw.adapters.tools.sandbox import SandboxViolation, WorkspaceSandbox
 from python_claw.domain.message import ToolCall, ToolDefinition, ToolResult
 
@@ -71,10 +79,9 @@ class BashTool:
                     is_error=True,
                 )
 
-            try:
-                self._policy.check(command)
-            except DangerousCommandError as exc:
-                return ToolResult(tool_call_id=call.id, output=str(exc), is_error=True)
+            decision = self._policy.evaluate(command)
+            if decision.decision is not CommandSafetyDecision.ALLOW:
+                return self._make_policy_result(call.id, decision)
 
             output, is_error = await self._run(command)
             return ToolResult(tool_call_id=call.id, output=output, is_error=is_error)
@@ -87,29 +94,49 @@ class BashTool:
             raise SandboxViolation(f"{key} must be a string")
         return value
 
+    def _make_policy_result(self, tool_call_id: str, decision: SafetyDecision) -> ToolResult:
+        if decision.decision is CommandSafetyDecision.REQUIRE_APPROVAL:
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                output=f"command requires approval before execution: {decision.reason}",
+                is_error=True,
+            )
+        return ToolResult(
+            tool_call_id=tool_call_id,
+            output=f"command denied by safety policy: {decision.reason}",
+            is_error=True,
+        )
+
     async def _run(self, command: str) -> tuple[str, bool]:
+        spawn_kwargs: dict[str, Any] = {}
+        if sys.platform == "win32":
+            spawn_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            spawn_kwargs["start_new_session"] = True
+
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
                 cwd=self._sandbox.root,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **spawn_kwargs,
             )
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=self._timeout_seconds,
-                )
-            except TimeoutError:
-                proc.kill()
-                await proc.wait()
-                return (
-                    f"command timed out after {self._timeout_seconds} seconds",
-                    True,
-                )
         except OSError as exc:
             return (
                 f"failed to start command: {exc}",
+                True,
+            )
+
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=self._timeout_seconds,
+            )
+        except TimeoutError:
+            await self._kill_process_tree(proc)
+            return (
+                f"command timed out after {self._timeout_seconds} seconds",
                 True,
             )
 
@@ -127,3 +154,77 @@ class BashTool:
             output,
             proc.returncode != 0,
         )
+
+    async def _kill_process_tree(self, proc: asyncio.subprocess.Process) -> None:
+        if sys.platform == "win32":
+            await self._kill_windows_process_tree(proc)
+        else:
+            await self._kill_posix_process_tree(proc)
+
+    async def _kill_windows_process_tree(self, proc: asyncio.subprocess.Process) -> None:
+        try:
+            taskkill = await asyncio.create_subprocess_exec(
+                "taskkill",
+                "/T",
+                "/F",
+                "/PID",
+                str(proc.pid),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            try:
+                await asyncio.wait_for(taskkill.wait(), timeout=5)
+            except TimeoutError:
+                try:
+                    taskkill.kill()
+                except OSError:
+                    pass
+        except (OSError, FileNotFoundError):
+            pass
+
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=2)
+        except TimeoutError:
+            pass
+
+    async def _kill_posix_process_tree(self, proc: asyncio.subprocess.Process) -> None:
+        pgid: int | None = None
+        try:
+            pgid = os.getpgid(proc.pid)  # type: ignore[attr-defined]
+        except ProcessLookupError:
+            pass
+
+        if pgid is not None:
+            try:
+                os.killpg(pgid, signal.SIGTERM)  # type: ignore[attr-defined]
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+
+        try:
+            proc.terminate()
+        except (ProcessLookupError, OSError):
+            pass
+
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=1)
+        except TimeoutError:
+            if pgid is not None:
+                try:
+                    os.killpg(pgid, signal.SIGKILL)  # type: ignore[attr-defined]
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+
+            try:
+                proc.kill()
+            except (ProcessLookupError, OSError):
+                pass
+
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=2)
+            except TimeoutError:
+                pass
