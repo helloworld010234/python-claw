@@ -167,3 +167,33 @@ class TestSessionPersistenceFactory:
                 session_id="s-1",
                 status="archived",  # type: ignore[arg-type]
             )
+
+    def test_factory_rejects_messages_with_non_message_elements(self) -> None:
+        with pytest.raises(PythonClawDomainError, match="messages\\[0\\].*Message"):
+            Session.from_persistence(
+                session_id="s-1",
+                status=SessionStatus.ACTIVE,
+                messages=["bad"],  # type: ignore[list-item]
+            )
+
+    def test_factory_rejects_non_usage_total_usage(self) -> None:
+        with pytest.raises(PythonClawDomainError, match="total_usage.*Usage"):
+            Session.from_persistence(
+                session_id="s-1",
+                status=SessionStatus.ACTIVE,
+                total_usage="bad",  # type: ignore[arg-type]
+            )
+
+    def test_factory_does_not_retain_external_messages_list(self) -> None:
+        message = Message(role=Role.USER, content="hello")
+        external_messages = [message]
+        session = Session.from_persistence(
+            session_id="s-1",
+            status=SessionStatus.ACTIVE,
+            messages=external_messages,
+        )
+
+        external_messages.append(Message(role=Role.USER, content="extra"))
+
+        assert session.message_count == 1
+        assert session.messages == (message,)
