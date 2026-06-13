@@ -212,12 +212,18 @@ class DangerousCommandPolicy:
     # Windows environment variable expansion patterns. Both ``%VAR%`` (cmd
     # style) and ``!VAR!`` (delayed expansion) can leak secrets such as API
     # keys or system paths even inside otherwise-safe commands like ``echo``.
-    # Any command containing these patterns requires approval regardless of
-    # the base command. Plain text such as ``100% done`` is not matched
-    # because there is no valid identifier between the delimiters.
+    # The match is intentionally conservative: any well-formed pair of ``%`` or
+    # ``!`` delimiters with at least one character between them is treated as a
+    # potential expansion. This catches substring/substitution forms
+    # (``%VAR:~0,3%``, ``%VAR:foo=bar%``), parenthesised names
+    # (``%ProgramFiles(x86)%``), dotted/hyphenated names (``%SECRET.KEY%``,
+    # ``%SECRET-KEY%``), names containing spaces (``%API KEY%``) and even
+    # names that start with whitespace after the delimiter (``% LEADING%``).
+    # Plain text such as ``100% done`` is not matched because there is no
+    # closing delimiter.
     _VARIABLE_EXPANSION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-        (re.compile(r"%[A-Za-z_][A-Za-z0-9_]*%"), "windows env variable"),
-        (re.compile(r"![A-Za-z_][A-Za-z0-9_]*!"), "windows delayed variable"),
+        (re.compile(r"%[^%\r\n]+%"), "windows env variable"),
+        (re.compile(r"![^!\r\n]+!"), "windows delayed variable"),
     )
 
     # Commands that are obviously read-only / low-risk and do not accept path
@@ -264,8 +270,10 @@ class DangerousCommandPolicy:
     def _has_variable_expansion(command: str) -> str | None:
         """Return the reason if ``command`` contains variable expansion.
 
-        Matches Windows ``%VAR%`` and delayed ``!VAR!`` patterns with a valid
-        identifier name. Returns ``None`` when no expansion is detected.
+        Matches Windows ``%...%`` and delayed ``!...!`` patterns, including
+        substring/substitution forms, parenthesised names, dotted/hyphenated
+        names, names containing spaces and names that start with whitespace
+        after the delimiter. Returns ``None`` when no expansion is detected.
         """
         for pattern, reason in DangerousCommandPolicy._VARIABLE_EXPANSION_PATTERNS:
             if pattern.search(command):

@@ -542,10 +542,24 @@ def test_policy_path_reading_probe() -> None:
         "echo %USERNAME%",
         "echo !PATH!",
         "echo !DEEPSEEK_API_KEY!",
+        "echo %PATH:~0,3%",
+        "echo %DEEPSEEK_API_KEY:~0,8%",
+        "echo %PATH:Windows=REDACTED%",
+        "echo %ProgramFiles(x86)%",
+        "echo !PATH:~0,3!",
+        "echo !DEEPSEEK_API_KEY:~0,8!",
+        "echo %SECRET.KEY%",
+        "echo %SECRET-KEY%",
+        "echo %API KEY%",
+        "echo % LEADING%",
+        "echo !SECRET.KEY!",
+        "echo !SECRET-KEY!",
+        "echo !API KEY!",
+        "echo ! LEADING!",
     ],
 )
 def test_policy_windows_variable_expansion_requires_approval(command: str) -> None:
-    """Windows %VAR% and !VAR! expansion must require approval even in echo."""
+    """Windows %...% and !...! expansion must require approval even in echo."""
     policy = DangerousCommandPolicy()
     decision = policy.evaluate(command)
     assert decision.decision is CommandSafetyDecision.REQUIRE_APPROVAL
@@ -560,6 +574,20 @@ def test_policy_windows_variable_expansion_requires_approval(command: str) -> No
         "echo %USERNAME%",
         "echo !PATH!",
         "echo !DEEPSEEK_API_KEY!",
+        "echo %PATH:~0,3%",
+        "echo %DEEPSEEK_API_KEY:~0,8%",
+        "echo %PATH:Windows=REDACTED%",
+        "echo %ProgramFiles(x86)%",
+        "echo !PATH:~0,3!",
+        "echo !DEEPSEEK_API_KEY:~0,8!",
+        "echo %SECRET.KEY%",
+        "echo %SECRET-KEY%",
+        "echo %API KEY%",
+        "echo % LEADING%",
+        "echo !SECRET.KEY!",
+        "echo !SECRET-KEY!",
+        "echo !API KEY!",
+        "echo ! LEADING!",
     ],
 )
 def test_bash_windows_variable_expansion_requires_approval(
@@ -572,16 +600,17 @@ def test_bash_windows_variable_expansion_requires_approval(
     assert "requires approval before execution" in result.output
 
 
-def test_policy_plain_percent_text_not_mistaken_for_variable() -> None:
-    """Plain percent text without a valid identifier is not treated as expansion.
+def test_policy_plain_delimiter_text_not_mistaken_for_variable() -> None:
+    """Plain delimiter text without a closing delimiter is not treated as expansion.
 
-    This is a deliberate safety-precision trade-off: we only flag the well-formed
-    ``%VAR%`` / ``!VAR!`` patterns that Windows shells actually expand.
+    This is a deliberate safety-precision trade-off: we only flag well-formed
+    ``%...%`` / ``!...!`` pairs that Windows shells actually expand.
     """
     policy = DangerousCommandPolicy()
     assert policy.evaluate("echo 100% done").decision is CommandSafetyDecision.ALLOW
     assert policy.evaluate("echo progress 50%").decision is CommandSafetyDecision.ALLOW
     assert policy.evaluate("echo % incomplete").decision is CommandSafetyDecision.ALLOW
+    assert policy.evaluate("echo ! incomplete").decision is CommandSafetyDecision.ALLOW
 
 
 def test_policy_windows_variable_expansion_probe() -> None:
@@ -594,6 +623,40 @@ def test_policy_windows_variable_expansion_probe() -> None:
     )
     assert policy.evaluate("echo !PATH!").decision is CommandSafetyDecision.REQUIRE_APPROVAL
     assert policy.evaluate("echo hello").decision is CommandSafetyDecision.ALLOW
+    assert (
+        policy.evaluate("echo %PATH:~0,3%").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert (
+        policy.evaluate("echo %DEEPSEEK_API_KEY:~0,8%").decision
+        is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert (
+        policy.evaluate("echo %PATH:Windows=REDACTED%").decision
+        is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert (
+        policy.evaluate("echo %ProgramFiles(x86)%").decision
+        is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert (
+        policy.evaluate("echo !PATH:~0,3!").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert (
+        policy.evaluate("echo !DEEPSEEK_API_KEY:~0,8!").decision
+        is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert policy.evaluate("echo %SECRET.KEY%").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    assert (
+        policy.evaluate("echo %SECRET-KEY%").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert policy.evaluate("echo %API KEY%").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    assert policy.evaluate("echo % LEADING%").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    assert policy.evaluate("echo !SECRET.KEY!").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    assert (
+        policy.evaluate("echo !SECRET-KEY!").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert policy.evaluate("echo !API KEY!").decision is CommandSafetyDecision.REQUIRE_APPROVAL
+    assert policy.evaluate("echo ! LEADING!").decision is CommandSafetyDecision.REQUIRE_APPROVAL
 
 
 @pytest.mark.parametrize(
