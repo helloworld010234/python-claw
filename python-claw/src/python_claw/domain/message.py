@@ -22,11 +22,12 @@ class Role(StrEnum):
 def _freeze_json_like(value: Any) -> Any:
     """Recursively convert a JSON-like structure into an immutable equivalent.
 
-    Supports dict, list, tuple, set, frozenset, str, int, float, bool and None.
-    Dicts are wrapped in ``MappingProxyType`` so callers cannot mutate them
-    through the returned mapping view.
+    Supports Mapping (including dict and UserDict), list, tuple, set, frozenset,
+    str, int, float, bool and None. Mappings are copied into a new plain dict and
+    wrapped in ``MappingProxyType`` so callers cannot mutate them through the
+    returned mapping view.
     """
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return MappingProxyType({k: _freeze_json_like(v) for k, v in value.items()})
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_json_like(item) for item in value)
@@ -66,6 +67,18 @@ class Usage:
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
+
+
+def _coerce_message_list(messages: Sequence[Any], owner_name: str) -> list[Message]:
+    """Validate and copy a sequence of messages for aggregate rehydration."""
+    result: list[Message] = []
+    for index, item in enumerate(messages):
+        if not isinstance(item, Message):
+            raise PythonClawDomainError(
+                f"{owner_name} messages[{index}] must be a Message, got {type(item)}"
+            )
+        result.append(item)
+    return result
 
 
 @dataclass(frozen=True, slots=True)

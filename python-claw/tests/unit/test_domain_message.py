@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections import UserDict
 from collections.abc import Mapping
+from typing import Any
 
 import pytest
 
@@ -89,6 +91,36 @@ class TestToolCall:
         with pytest.raises(TypeError):
             call.arguments["items"][0]["name"] = "mutated"  # type: ignore[index]
 
+    def test_arguments_userdict_copied_and_frozen(self) -> None:
+        external: UserDict[str, Any] = UserDict({"path": "README.md"})
+        call = ToolCall(id="call-1", name="read_file", arguments=external)
+
+        external["path"] = "mutated"
+
+        assert dict(call.arguments) == {"path": "README.md"}
+        with pytest.raises(TypeError):
+            call.arguments["path"] = "mutated"  # type: ignore[index]
+
+    def test_nested_userdict_and_dict_are_frozen(self) -> None:
+        external: UserDict[str, Any] = UserDict(
+            {
+                "items": UserDict({"first": {"name": "a"}, "second": {"name": "b"}}),
+                "tags": {"important"},
+                "nested": {"value": 1},
+            }
+        )
+        call = ToolCall(id="call-1", name="complex", arguments=external)
+
+        external["items"]["first"]["name"] = "mutated"
+        external["nested"]["value"] = 99
+        external["tags"].add("ignored")
+
+        assert call.arguments["items"] == {"first": {"name": "a"}, "second": {"name": "b"}}
+        assert call.arguments["nested"]["value"] == 1
+        assert call.arguments["tags"] == frozenset({"important"})
+        with pytest.raises(TypeError):
+            call.arguments["items"]["first"]["name"] = "mutated"  # type: ignore[index]
+
     def test_arguments_must_be_mapping(self) -> None:
         with pytest.raises(PythonClawDomainError, match="mapping"):
             ToolCall(id="call-1", name="read_file", arguments=["not", "a", "mapping"])  # type: ignore[arg-type]
@@ -122,6 +154,20 @@ class TestToolDefinition:
             input_schema={"type": "object"},
         )
 
+        with pytest.raises(TypeError):
+            definition.input_schema["type"] = "array"  # type: ignore[index]
+
+    def test_input_schema_userdict_copied_and_frozen(self) -> None:
+        external: UserDict[str, Any] = UserDict(
+            {"type": "object", "properties": {"path": {"type": "string"}}}
+        )
+        definition = ToolDefinition(
+            name="read_file", description="reads a file", input_schema=external
+        )
+
+        external["properties"]["path"]["type"] = "mutated"
+
+        assert definition.input_schema["properties"]["path"]["type"] == "string"
         with pytest.raises(TypeError):
             definition.input_schema["type"] = "array"  # type: ignore[index]
 

@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Self
 
 from python_claw.domain.common import PythonClawDomainError
-from python_claw.domain.message import Message, Role, Usage
+from python_claw.domain.message import Message, Role, Usage, _coerce_message_list
 
 
 class SessionStatus(StrEnum):
@@ -73,8 +73,12 @@ class Session:
         instance = cls(id=session_id)
         object.__setattr__(instance, "_status", status)
         if messages is not None:
-            object.__setattr__(instance, "_messages", list(messages))
+            object.__setattr__(instance, "_messages", _coerce_message_list(messages, "Session"))
         if total_usage is not None:
+            if not isinstance(total_usage, Usage):
+                raise PythonClawDomainError(
+                    f"Session total_usage must be Usage, got {type(total_usage)}"
+                )
             object.__setattr__(instance, "_total_usage", total_usage)
         return instance
 

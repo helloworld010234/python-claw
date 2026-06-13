@@ -124,3 +124,29 @@ class TestAgentRunPersistenceFactory:
                 prompt="hello",
                 status="completed",  # type: ignore[arg-type]
             )
+
+    def test_factory_rejects_messages_with_non_message_elements(self) -> None:
+        with pytest.raises(PythonClawDomainError, match="messages\\[0\\].*Message"):
+            AgentRun.from_persistence(
+                run_id="r-1",
+                session_id="s-1",
+                prompt="hello",
+                status=AgentRunStatus.PENDING,
+                messages=["bad"],  # type: ignore[list-item]
+            )
+
+    def test_factory_does_not_retain_external_messages_list(self) -> None:
+        message = Message(role=Role.ASSISTANT, content="hello")
+        external_messages = [message]
+        run = AgentRun.from_persistence(
+            run_id="r-1",
+            session_id="s-1",
+            prompt="hello",
+            status=AgentRunStatus.PENDING,
+            messages=external_messages,
+        )
+
+        external_messages.append(Message(role=Role.USER, content="extra"))
+
+        assert len(run.messages) == 1
+        assert run.messages == (message,)

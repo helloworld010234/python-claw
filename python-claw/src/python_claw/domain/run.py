@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Self
 
 from python_claw.domain.common import PythonClawDomainError
-from python_claw.domain.message import Message
+from python_claw.domain.message import Message, _coerce_message_list
 
 
 class AgentRunStatus(StrEnum):
@@ -96,7 +96,7 @@ class AgentRun:
         instance = cls(id=run_id, session_id=session_id, prompt=prompt)
         object.__setattr__(instance, "_status", status)
         if messages is not None:
-            object.__setattr__(instance, "_messages", list(messages))
+            object.__setattr__(instance, "_messages", _coerce_message_list(messages, "AgentRun"))
         return instance
 
     def start(self) -> None:
