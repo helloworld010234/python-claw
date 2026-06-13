@@ -1,22 +1,24 @@
-# python-claw 提交与推送速查
+# python-claw 提交与推送标准流程
 
-本文件只记录提交/推送流程。质量验证、阶段准入、目录边界和安全规则以 `AGENTS.md` 为准。
+本文只定义 `D:\go-tiny-claw\python-claw` 子项目的本地治理、提交和推送流程。质量门禁、目录边界、安全规则仍以 `AGENTS.md` 为准。
 
-## 1. 固定远程
+注意：本地 Git 根目录是 `D:\go-tiny-claw`，而远程 `python-claw-origin` 是独立 Python 仓库，远程根目录对应本地 `python-claw/` 子目录。因此禁止把本地根分支直接 push 到 `python-claw-origin/develop`；必须使用 subtree split 只推送 `python-claw/` 的内容。
 
-Git 根目录仍是：
+## 1. 固定范围
+
+Git 根目录：
 
 ```powershell
 cd D:\go-tiny-claw
 ```
 
-Python 项目目录是：
+子项目范围：
 
 ```text
-D:\go-tiny-claw\python-claw
+python-claw/
 ```
 
-默认远程和分支：
+固定远程与分支：
 
 ```text
 remote: python-claw-origin
@@ -24,93 +26,219 @@ url:    https://github.com/helloworld010234/python-claw.git
 branch: develop
 ```
 
-检查：
+任何提交、暂存、推送检查都必须限制在 `python-claw/`，不得把 Go、Java、docs、workspace 或根目录其它文件混入本轮提交。远程推送也必须保持 `python-claw/` 内容成为远程仓库根目录，而不是在远程产生嵌套的 `python-claw/` 文件夹。
+
+## 2. 自动门禁
+
+提交前和推送前都必须运行项目内门禁脚本：
 
 ```powershell
-git remote -v
-git branch -vv
+cd D:\go-tiny-claw\python-claw
+$env:UV_CACHE_DIR="D:\go-tiny-claw\python-claw\.uv-cache"
+$env:TEMP="D:\go-tiny-claw\python-claw\.tmp"
+$env:TMP="D:\go-tiny-claw\python-claw\.tmp"
+
+uv run --python 3.12 --extra dev python scripts/repo_guard.py
 ```
 
-## 2. 提交前最小检查
+推送前增加远程布局检查：
+
+```powershell
+uv run --python 3.12 --extra dev python scripts/repo_guard.py --remote-check
+```
+
+脚本会检查：
+
+- `python-claw/src` 和 `python-claw/tests` 下是否仍有未跟踪源码或测试。
+- cached 区是否混入 `python-claw/` 之外的路径。
+- 本地 monorepo 分支是否错误追踪 `python-claw-origin/develop`。
+- `git subtree split --prefix=python-claw HEAD` 的根目录是否直接是 Python 项目根目录。
+- 远程 `python-claw-origin/develop` 是否仍保持独立 Python 仓库布局。
+
+脚本失败时禁止提交和推送。
+
+## 3. 手工复核命令
+
+自动门禁之外，关键节点仍建议手工复核：
 
 ```powershell
 git status --short --untracked-files=all -- python-claw
 git diff --stat -- python-claw
 git diff --name-status -- python-claw
 git diff --cached --name-status
+git ls-files --others --exclude-standard -- python-claw/src python-claw/tests
 ```
 
-要求：
+必须满足：
 
-- 本轮准备提交的文件都在 `python-claw/` 下。
-- `git diff --cached --name-status` 为空，除非已经进入正式提交步骤。
-- 缓存、虚拟环境、临时文件、构建产物不应出现。
+- `git diff --name-status -- python-claw` 能看到本轮所有源码、测试、配置和文档增量。
+- `git ls-files --others --exclude-standard -- python-claw/src python-claw/tests` 为空；若不为空，必须先处理未跟踪源码或测试。
+- `git diff --cached --name-status` 不得出现 `python-claw/` 之外的路径。
+- `.tmp/`、`.uv-cache/`、`.venv/`、`.pytest_cache/`、`.ruff_cache/`、`.mypy_cache/`、`.claw/`、数据库文件和构建产物不得进入 Git 增量。
 
-## 3. 精确 stage
+## 4. 未跟踪源码治理
 
-不要使用 `git add .`。
+如果新增源码或测试仍显示为 `??`，禁止直接进入提交或推送。
 
-按实际改动精确添加，例如：
+审查阶段如暂不正式 stage，可使用 intent-to-add 让 diff 可见：
 
 ```powershell
-git add -- python-claw/src/python_claw/adapters/tools/shell.py
-git add -- python-claw/tests/unit/test_shell_tool.py
+git add -N -- python-claw/src/python_claw/application/engine.py
+git add -N -- python-claw/tests/unit/test_agent_engine.py
 ```
 
-或在确认 `python-claw/` 内无意外文件后：
+提交阶段必须精确 stage：
 
 ```powershell
-git add -- python-claw
+git add -- python-claw/src/python_claw/application/engine.py
+git add -- python-claw/tests/unit/test_agent_engine.py
 ```
 
-stage 后确认：
+禁止：
+
+```powershell
+git add .
+git add -A
+```
+
+## 5. 质量门禁
+
+在 `D:\go-tiny-claw\python-claw` 执行：
+
+```powershell
+$env:UV_CACHE_DIR="D:\go-tiny-claw\python-claw\.uv-cache"
+$env:TEMP="D:\go-tiny-claw\python-claw\.tmp"
+$env:TMP="D:\go-tiny-claw\python-claw\.tmp"
+
+uv run --python 3.12 --extra dev ruff check .
+uv run --python 3.12 --extra dev mypy
+uv run --python 3.12 --extra dev pytest
+uv run --python 3.12 --extra dev python scripts/repo_guard.py
+```
+
+只有上述验证通过，才能提交。若存在跳过测试、警告或本机限制，提交说明中必须明确记录。
+
+## 6. 精确 Stage
+
+推荐从 Git 根目录执行：
+
+```powershell
+git add -- python-claw/pyproject.toml
+git add -- python-claw/uv.lock
+git add -- python-claw/src
+git add -- python-claw/scripts
+git add -- python-claw/tests
+git add -- python-claw/PUSH-GUIDE.md
+```
+
+stage 后必须复查：
 
 ```powershell
 git diff --cached --name-status
+uv run --python 3.12 --extra dev python scripts/repo_guard.py
 ```
 
-## 4. commit
+如果出现 `python-claw/` 外路径，立即停止并取消对应暂存。
 
-格式：
+## 7. Commit
+
+提交信息格式：
 
 ```text
 <type>(<scope>): <summary>
 ```
 
-常用示例：
+示例：
 
 ```powershell
-git commit -m "fix(tool): terminate timed out bash process trees"
-git commit -m "chore(repo): move python project under python-claw"
+git commit -m "fix(agent): harden engine observer failures"
+git commit -m "chore(repo): standardize python-claw push workflow"
 ```
 
-## 5. push
+提交后确认：
 
-推送前同步：
+```powershell
+git status --short --untracked-files=all -- python-claw
+git log -1 --oneline --decorate
+uv run --python 3.12 --extra dev python scripts/repo_guard.py
+```
+
+## 8. 推送前同步
 
 ```powershell
 git fetch python-claw-origin develop
-git log --oneline --left-right --decorate develop...python-claw-origin/develop
+git log --oneline --left-right --decorate python-claw-origin/develop...HEAD -- python-claw
 ```
 
-若远程没有领先或冲突，再推送：
+若远程领先，先确认远程根目录仍是独立 Python 仓库布局：
 
 ```powershell
-git push python-claw-origin develop
+git ls-tree --name-only python-claw-origin/develop
+git ls-tree --name-only HEAD:python-claw
+uv run --python 3.12 --extra dev python scripts/repo_guard.py --remote-check
+```
+
+两者都应包含 `pyproject.toml`、`src`、`tests`、`uv.lock` 等 Python 项目根目录文件。
+
+## 9. 生成 subtree split
+
+从 Git 根目录执行：
+
+```powershell
+git subtree split --prefix=python-claw HEAD -b python-claw-split
+```
+
+检查 split 分支内容：
+
+```powershell
+git ls-tree --name-only python-claw-split
+git log -1 --oneline python-claw-split
+```
+
+必须确认 split 分支根目录直接包含：
+
+```text
+pyproject.toml
+src
+tests
+uv.lock
+PUSH-GUIDE.md
+```
+
+不得出现顶层 `python-claw/` 嵌套目录。
+
+## 10. 推送 split 分支
+
+如果远程没有领先，或已经确认 split 分支包含远程最新变更，再推送：
+
+```powershell
+git push python-claw-origin python-claw-split:develop
 ```
 
 推送后确认：
 
 ```powershell
 git fetch python-claw-origin develop
-git status --short --branch
+git log -1 --oneline python-claw-origin/develop
+git ls-tree --name-only python-claw-origin/develop
+uv run --python 3.12 --extra dev python scripts/repo_guard.py --remote-check
 ```
 
-## 6. 停止条件
+可选清理本地临时 split 分支：
 
-出现以下情况先停下，不提交不推送：
+```powershell
+git branch -D python-claw-split
+```
 
-- `git diff --cached --name-status` 出现非 `python-claw/` 路径。
-- `git log --left-right` 显示远程领先且未合并。
-- 远程不是 `python-claw-origin` 或分支不是预期分支。
+## 11. 停止条件
+
+出现以下任一情况，停止提交和推送：
+
+- `scripts/repo_guard.py` 失败。
+- `git diff --cached --name-status` 出现 `python-claw/` 之外路径。
+- `python-claw/src` 或 `python-claw/tests` 下仍有未跟踪源码或测试。
+- 质量门禁失败。
+- split 分支根目录出现嵌套 `python-claw/`。
+- 远程 `python-claw-origin/develop` 有本地 `python-claw/` 子树没有包含的业务变更。
 - 需要 force push。
+- 当前分支不是预期的 `develop`，且用户未明确授权切换或推送其它分支。
