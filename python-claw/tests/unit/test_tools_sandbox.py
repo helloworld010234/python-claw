@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -91,3 +93,50 @@ def test_rejects_symlink_directory_escape(sandbox: WorkspaceSandbox) -> None:
 def test_write_parent_outside_workspace_is_rejected(sandbox: WorkspaceSandbox) -> None:
     with pytest.raises(SandboxViolation, match="escapes workspace"):
         sandbox.resolve_write_path("sub/../../outside.txt")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific junction escape test")
+def test_rejects_windows_directory_junction_escape(sandbox: WorkspaceSandbox) -> None:
+    """Directory junctions (and directory symlinks) on Windows must not escape."""
+    outside_dir = sandbox.root.parent / "outside_dir_win"
+    outside_dir.mkdir(exist_ok=True)
+    link_dir = sandbox.root / "link_dir_win"
+
+    symlink_error: OSError | None = None
+    junction_error: OSError | None = None
+    mklink_error: OSError | subprocess.CalledProcessError | None = None
+    created = False
+
+    try:
+        os.symlink(outside_dir, link_dir, target_is_directory=True)
+        created = True
+    except OSError as exc:
+        symlink_error = exc
+        try:
+            import _winapi
+
+            _winapi.CreateJunction(str(link_dir), str(outside_dir))
+            created = True
+        except OSError as junction_exc:
+            junction_error = junction_exc
+            try:
+                subprocess.run(
+                    ["cmd", "/c", "mklink", "/J", str(link_dir), str(outside_dir)],
+                    check=True,
+                    capture_output=True,
+                )
+                created = True
+            except (OSError, subprocess.CalledProcessError) as mklink_exc:
+                mklink_error = mklink_exc
+
+    if not created:
+        pytest.skip(
+            "cannot create directory symlink or junction on this Windows environment: "
+            f"symlink={symlink_error}; junction={junction_error}; mklink={mklink_error}"
+        )
+
+    with pytest.raises(SandboxViolation, match="escapes workspace"):
+        sandbox.resolve_read_path("link_dir_win/file.txt")
+
+    with pytest.raises(SandboxViolation, match="escapes workspace"):
+        sandbox.resolve_write_path("link_dir_win/file.txt")

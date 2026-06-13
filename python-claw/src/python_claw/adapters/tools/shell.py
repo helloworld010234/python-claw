@@ -9,7 +9,11 @@ import subprocess
 import sys
 from typing import Any
 
-from python_claw.adapters.tools.policy import DangerousCommandError, DangerousCommandPolicy
+from python_claw.adapters.tools.policy import (
+    CommandSafetyDecision,
+    DangerousCommandPolicy,
+    SafetyDecision,
+)
 from python_claw.adapters.tools.sandbox import SandboxViolation, WorkspaceSandbox
 from python_claw.domain.message import ToolCall, ToolDefinition, ToolResult
 
@@ -75,10 +79,9 @@ class BashTool:
                     is_error=True,
                 )
 
-            try:
-                self._policy.check(command)
-            except DangerousCommandError as exc:
-                return ToolResult(tool_call_id=call.id, output=str(exc), is_error=True)
+            decision = self._policy.evaluate(command)
+            if decision.decision is not CommandSafetyDecision.ALLOW:
+                return self._make_policy_result(call.id, decision)
 
             output, is_error = await self._run(command)
             return ToolResult(tool_call_id=call.id, output=output, is_error=is_error)
@@ -90,6 +93,19 @@ class BashTool:
         if not isinstance(value, str):
             raise SandboxViolation(f"{key} must be a string")
         return value
+
+    def _make_policy_result(self, tool_call_id: str, decision: SafetyDecision) -> ToolResult:
+        if decision.decision is CommandSafetyDecision.REQUIRE_APPROVAL:
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                output=f"command requires approval before execution: {decision.reason}",
+                is_error=True,
+            )
+        return ToolResult(
+            tool_call_id=tool_call_id,
+            output=f"command denied by safety policy: {decision.reason}",
+            is_error=True,
+        )
 
     async def _run(self, command: str) -> tuple[str, bool]:
         spawn_kwargs: dict[str, Any] = {}
