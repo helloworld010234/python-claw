@@ -1,4 +1,6 @@
 """Persistence adapter package.
 
-SQLAlchemy models and repositories are intentionally deferred beyond the skeleton milestone.
+M3 baseline provides SQLAlchemy 2.x models, synchronous repositories,
+Alembic migrations, and session factory helpers. Domain and port layers remain
+free of SQLAlchemy/Alembic imports.
 """

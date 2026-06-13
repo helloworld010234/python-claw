@@ -559,7 +559,7 @@ def test_policy_path_reading_probe() -> None:
     ],
 )
 def test_policy_windows_variable_expansion_requires_approval(command: str) -> None:
-    """Windows %VAR% and !VAR! expansion must require approval even in echo."""
+    """Windows %...% and !...! expansion must require approval even in echo."""
     policy = DangerousCommandPolicy()
     decision = policy.evaluate(command)
     assert decision.decision is CommandSafetyDecision.REQUIRE_APPROVAL
@@ -583,9 +583,11 @@ def test_policy_windows_variable_expansion_requires_approval(command: str) -> No
         "echo %SECRET.KEY%",
         "echo %SECRET-KEY%",
         "echo %API KEY%",
+        "echo % LEADING%",
         "echo !SECRET.KEY!",
         "echo !SECRET-KEY!",
         "echo !API KEY!",
+        "echo ! LEADING!",
     ],
 )
 def test_bash_windows_variable_expansion_requires_approval(
@@ -629,8 +631,15 @@ def test_policy_windows_variable_expansion_probe() -> None:
         is CommandSafetyDecision.REQUIRE_APPROVAL
     )
     assert (
+        policy.evaluate("echo %PATH:Windows=REDACTED%").decision
+        is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert (
         policy.evaluate("echo %ProgramFiles(x86)%").decision
         is CommandSafetyDecision.REQUIRE_APPROVAL
+    )
+    assert (
+        policy.evaluate("echo !PATH:~0,3!").decision is CommandSafetyDecision.REQUIRE_APPROVAL
     )
     assert (
         policy.evaluate("echo !DEEPSEEK_API_KEY:~0,8!").decision
