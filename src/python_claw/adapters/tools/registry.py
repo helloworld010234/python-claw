@@ -41,7 +41,7 @@ def create_default_tool_registry(
 ) -> StaticToolRegistry:
     """Create the standard registry with read, write, edit and bash tools."""
     sandbox = WorkspaceSandbox(workspace_root)
-    policy = DangerousCommandPolicy()
+    policy = DangerousCommandPolicy(conservative=True)
     tools: list[AgentTool] = [
         ReadFileTool(sandbox, max_output_chars=tool_max_output_chars),
         WriteFileTool(sandbox),
