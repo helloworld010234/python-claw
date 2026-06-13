@@ -209,6 +209,23 @@ class DangerousCommandPolicy:
         "\r",
     )
 
+    # Windows environment variable expansion patterns. Both ``%VAR%`` (cmd
+    # style) and ``!VAR!`` (delayed expansion) can leak secrets such as API
+    # keys or system paths even inside otherwise-safe commands like ``echo``.
+    # The match is intentionally conservative: any well-formed pair of ``%`` or
+    # ``!`` delimiters with at least one character between them is treated as a
+    # potential expansion. This catches substring/substitution forms
+    # (``%VAR:~0,3%``, ``%VAR:foo=bar%``), parenthesised names
+    # (``%ProgramFiles(x86)%``), dotted/hyphenated names (``%SECRET.KEY%``,
+    # ``%SECRET-KEY%``), names containing spaces (``%API KEY%``) and even
+    # names that start with whitespace after the delimiter (``% LEADING%``).
+    # Plain text such as ``100% done`` is not matched because there is no
+    # closing delimiter.
+    _VARIABLE_EXPANSION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"%[^%\r\n]+%"), "windows env variable"),
+        (re.compile(r"![^!\r\n]+!"), "windows delayed variable"),
+    )
+
     # Commands that are obviously read-only / low-risk and do not accept path
     # arguments. Each rule matches only the simple form at the start of the
     # command line. Shell-composition checks run before these rules, so
@@ -250,6 +267,20 @@ class DangerousCommandPolicy:
         return any(seq in command for seq in DangerousCommandPolicy._SHELL_COMPOSITION_SEQUENCES)
 
     @staticmethod
+    def _has_variable_expansion(command: str) -> str | None:
+        """Return the reason if ``command`` contains variable expansion.
+
+        Matches Windows ``%...%`` and delayed ``!...!`` patterns, including
+        substring/substitution forms, parenthesised names, dotted/hyphenated
+        names, names containing spaces and names that start with whitespace
+        after the delimiter. Returns ``None`` when no expansion is detected.
+        """
+        for pattern, reason in DangerousCommandPolicy._VARIABLE_EXPANSION_PATTERNS:
+            if pattern.search(command):
+                return reason
+        return None
+
+    @staticmethod
     def _has_path_argument(command: str) -> bool:
         """Return True if ``command`` likely contains a path argument."""
         return any(seq in command for seq in DangerousCommandPolicy._PATH_ARGUMENT_SEQUENCES)
@@ -285,6 +316,15 @@ class DangerousCommandPolicy:
             return SafetyDecision(
                 decision=CommandSafetyDecision.REQUIRE_APPROVAL,
                 reason="shell composition requires review",
+            )
+
+        # Windows-style environment variable expansion can leak secrets or
+        # system configuration even from allowlisted commands such as ``echo``.
+        variable_reason = self._has_variable_expansion(command)
+        if variable_reason is not None:
+            return SafetyDecision(
+                decision=CommandSafetyDecision.REQUIRE_APPROVAL,
+                reason="shell variable expansion requires review",
             )
 
         for pattern, reason in self._ALLOW_RULES:
